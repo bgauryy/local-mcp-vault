@@ -1,0 +1,7 @@
+node_modules
+.octocode
+dist
+dist-renderer
+release
+.yarn/install-state.gz
+*.log

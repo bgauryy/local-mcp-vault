@@ -1,0 +1,89 @@
+{
+  "name": "octovault-harness",
+  "version": "0.1.0",
+  "description": "OctoVault Electron vault and HTTP gateway for MCP configurations",
+  "packageManager": "yarn@1.22.22",
+  "type": "module",
+  "main": "electron-main.cjs",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "start": "electron .",
+    "start:built": "electron .",
+    "build": "yarn clean && yarn build:main && yarn build:renderer",
+    "build:main": "tsc -p tsconfig.main.json",
+    "build:renderer": "vite build",
+    "build:check": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.renderer.json --noEmit && tsc -p tsconfig.test.json --noEmit",
+    "test": "node --test --import tsx tests/*.test.ts",
+    "verify": "yarn test && yarn build:check && yarn build",
+    "bundle": "yarn build && electron-builder --dir",
+    "bundle:mac": "yarn build && electron-builder --mac",
+    "bundle:linux": "yarn build && electron-builder --linux",
+    "bundle:win": "yarn build && electron-builder --win",
+    "clean": "rm -rf dist dist-renderer release",
+    "lint:secrets": "node --test --import tsx tests/redaction.test.ts"
+  },
+  "keywords": [
+    "mcp",
+    "electron",
+    "vault",
+    "model-context-protocol"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "lucide-react": "^1.25.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "uuid": "^11.0.3",
+    "zod": "^3.24.0",
+    "zustand": "^5.0.14"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.10.2",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "electron": "^43.2.0",
+    "electron-builder": "^26.15.3",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.3"
+  },
+  "build": {
+    "appId": "dev.octovault.app",
+    "productName": "OctoVault",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "electron-main.cjs",
+      "preload.cjs",
+      "package.json",
+      "dist/**",
+      "dist-renderer/**"
+    ],
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "linux": {
+      "category": "Development",
+      "target": [
+        "AppImage",
+        "deb"
+      ]
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    }
+  }
+}
