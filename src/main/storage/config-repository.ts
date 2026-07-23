@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import Database, { type BetterSqlite3Database } from 'better-sqlite3-multiple-ciphers';
@@ -65,6 +65,44 @@ function restrictPermissions(path: string, mode: number): void {
   }
 }
 
+function keyPragma(encryptionKey: string): string {
+  return `key = "x'${encryptionKey}'"`;
+}
+
+function rekeyPragma(encryptionKey: string): string {
+  return `rekey = "x'${encryptionKey}'"`;
+}
+
+function isNotDatabaseError(error: unknown): boolean {
+  return error instanceof Error && /file is not a database/i.test(error.message);
+}
+
+function canOpenPlaintextDatabase(databasePath: string): boolean {
+  let db: BetterSqlite3Database | undefined;
+  try {
+    db = new Database(databasePath);
+    db.prepare('SELECT name FROM sqlite_master LIMIT 1').get();
+    return true;
+  } catch {
+    return false;
+  } finally {
+    if (db) db.close();
+  }
+}
+
+function encryptExistingPlaintextDatabase(databasePath: string, encryptionKey: string): void {
+  const db = new Database(databasePath);
+  try {
+    // Pull any WAL contents into the main plaintext DB before rekeying, then
+    // leave WAL mode disabled until the keyed connection below enables it.
+    db.pragma('wal_checkpoint(FULL)');
+    db.pragma('journal_mode = DELETE');
+    db.pragma(rekeyPragma(encryptionKey));
+  } finally {
+    db.close();
+  }
+}
+
 export class ConfigRepository {
   private readonly db: BetterSqlite3Database;
 
@@ -81,12 +119,39 @@ export class ConfigRepository {
       // Defense in depth on top of file encryption: keep the store owner-only.
       restrictPermissions(dir, 0o700);
     }
-    this.db = new Database(databasePath);
-    // The key PRAGMA must run before any other statement touches the database.
-    if (encryptionKey) this.db.pragma(`key = "x'${encryptionKey}'"`);
+    this.db = this.openDatabase(databasePath, encryptionKey);
     this.db.exec('PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;');
     if (databasePath !== ':memory:') restrictPermissions(databasePath, 0o600);
     this.migrate();
+  }
+
+  private openDatabase(databasePath: string, encryptionKey?: string): BetterSqlite3Database {
+    const db = new Database(databasePath);
+    if (!encryptionKey) return db;
+
+    // The key PRAGMA must run before any other statement touches an encrypted DB.
+    db.pragma(keyPragma(encryptionKey));
+    try {
+      // Force SQLCipher to validate the key now. Without this, errors surface
+      // later during migration as the opaque SQLite message "file is not a database".
+      db.prepare('SELECT name FROM sqlite_master LIMIT 1').get();
+      return db;
+    } catch (error) {
+      db.close();
+
+      // Upgrade path for stores created before whole-database encryption existed:
+      // if the existing file is valid plaintext SQLite, encrypt it in place with
+      // the new key and reopen it as an encrypted database.
+      if (databasePath !== ':memory:' && existsSync(databasePath) && isNotDatabaseError(error) && canOpenPlaintextDatabase(databasePath)) {
+        encryptExistingPlaintextDatabase(databasePath, encryptionKey);
+        const encryptedDb = new Database(databasePath);
+        encryptedDb.pragma(keyPragma(encryptionKey));
+        encryptedDb.prepare('SELECT name FROM sqlite_master LIMIT 1').get();
+        return encryptedDb;
+      }
+
+      throw error;
+    }
   }
 
   close(): void {

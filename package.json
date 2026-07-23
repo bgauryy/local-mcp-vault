@@ -13,14 +13,16 @@
     "build:main": "tsc -p tsconfig.main.json",
     "build:renderer": "vite build",
     "build:check": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.renderer.json --noEmit && tsc -p tsconfig.test.json --noEmit",
-    "test": "node --test --import tsx tests/*.test.ts",
+    "test": "ELECTRON_RUN_AS_NODE=1 electron --test --import tsx tests/*.test.ts",
     "verify": "yarn test && yarn build:check && yarn build",
     "bundle": "yarn build && electron-builder --dir",
     "bundle:mac": "yarn build && electron-builder --mac",
     "bundle:linux": "yarn build && electron-builder --linux",
     "bundle:win": "yarn build && electron-builder --win",
     "clean": "rm -rf dist dist-renderer release",
+    "lint": "yarn lint:secrets",
     "lint:secrets": "node --test --import tsx tests/redaction.test.ts",
+    "postinstall": "electron-builder install-app-deps",
     "rebuild:native": "electron-builder install-app-deps"
   },
   "keywords": [
@@ -32,7 +34,7 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "better-sqlite3-multiple-ciphers": "^11.9.1",
+    "better-sqlite3-multiple-ciphers": "^12.11.1",
     "cors": "^2.8.5",
     "express": "^4.21.2",
     "uuid": "^11.0.3",

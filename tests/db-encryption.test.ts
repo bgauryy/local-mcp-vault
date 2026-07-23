@@ -13,6 +13,28 @@ function tempDbPath(): string {
   return join(tmpdir(), `octovault-db-${randomUUID()}`, 'vault.db');
 }
 
+test('an existing plaintext database is encrypted in place when a database key becomes available', () => {
+  const dbPath = tempDbPath();
+  const key = randomBytes(32).toString('hex');
+  try {
+    const plain = new ConfigRepository(dbPath);
+    plain.upsertServer({ id: 'legacy-server', name: 'LEGACY_NAME', transport: 'stdio', command: 'node', enabled: true });
+    plain.close();
+
+    assert.equal(readFileSync(dbPath).subarray(0, 16).toString('utf8').startsWith('SQLite format 3'), true, 'starts as plaintext SQLite');
+
+    const encrypted = new ConfigRepository(dbPath, key);
+    assert.equal(encrypted.getServer('legacy-server')?.name, 'LEGACY_NAME');
+    encrypted.close();
+
+    const raw = readFileSync(dbPath);
+    assert.equal(raw.includes(Buffer.from('LEGACY_NAME')), false, 'legacy data is encrypted in place');
+    assert.equal(raw.subarray(0, 16).toString('utf8').startsWith('SQLite format 3'), false, 'header is encrypted after migration');
+  } finally {
+    rmSync(join(dbPath, '..'), { recursive: true, force: true });
+  }
+});
+
 test('an encrypted database is unreadable without the key and readable with it', () => {
   const dbPath = tempDbPath();
   const key = randomBytes(32).toString('hex');

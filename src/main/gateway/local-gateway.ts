@@ -63,7 +63,8 @@ export class LocalGateway {
     // ── MCP Streamable HTTP endpoint ──────────────────────────────────────────
     app.post('/mcp/:serverId', this.mcpAccessGuard.bind(this), async (req, res, next) => {
       try {
-        const result = await this.runtime.handle(readServerId(req), req.body, { sessionId: sessionHeader(req) });
+        const sessionId = sessionHeader(req);
+        const result = await this.runtime.handle(readServerId(req), req.body, sessionId ? { sessionId } : {});
         if (result.sessionId) res.setHeader('Mcp-Session-Id', result.sessionId);
         if (result.accepted) return res.status(202).end();
         return res.json(result.body);
@@ -188,8 +189,8 @@ export class LocalGateway {
   private mcpAccessGuard(req: Request, res: Response, next: NextFunction): void {
     const provided = req.header(ACCESS_KEY_HEADER);
     if (keyMatches(provided, this.accessKey)) return next();
-    const serverId = req.params.serverId;
-    const serverKey = serverId ? this.configService.getServerAccessKey(serverId) : '';
+    const serverId = readServerId(req);
+    const serverKey = this.configService.getServerAccessKey(serverId);
     if (serverKey && keyMatches(provided, serverKey)) return next();
     res.status(401).json({ error: 'Missing or invalid OctoVault access key' });
   }
