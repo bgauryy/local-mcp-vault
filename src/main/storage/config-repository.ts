@@ -1,8 +1,8 @@
-import { mkdirSync } from 'node:fs';
+import { chmodSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { DatabaseSync } from 'node:sqlite';
-import type { McpEnvVarRecord, McpServerInput, McpServerRecord, McpServerWithEnv, McpUsageMetrics, VaultEntryRecord, VaultSecretRecord } from '../../shared/types.js';
+import Database, { type BetterSqlite3Database } from 'better-sqlite3-multiple-ciphers';
+import type { McpServerInput, McpServerRecord, McpServerWithEnv, McpUsageMetrics, VaultEntryRecord, VaultSecretRecord } from '../../shared/types.js';
 import { makeServerId, parseMcpServerInput } from '../../shared/validation.js';
 
 interface ServerRow {
@@ -57,18 +57,56 @@ export interface UsageEvent {
   ok: boolean;
 }
 
-export class ConfigRepository {
-  private readonly db: DatabaseSync;
+function restrictPermissions(path: string, mode: number): void {
+  try {
+    chmodSync(path, mode);
+  } catch (error) {
+    console.warn(`[octovault] could not restrict permissions on ${path}`, error);
+  }
+}
 
-  constructor(databasePath = ':memory:') {
-    if (databasePath !== ':memory:') mkdirSync(dirname(databasePath), { recursive: true });
-    this.db = new DatabaseSync(databasePath);
+export class ConfigRepository {
+  private readonly db: BetterSqlite3Database;
+
+  /**
+   * @param databasePath  path to the SQLite file, or ':memory:'.
+   * @param encryptionKey raw 64-hex SQLCipher key. When set, the **entire
+   *   database file is encrypted at rest** (all configuration — names, commands,
+   *   env values, sealed secrets — is ciphertext on disk).
+   */
+  constructor(databasePath = ':memory:', encryptionKey?: string) {
+    if (databasePath !== ':memory:') {
+      const dir = dirname(databasePath);
+      mkdirSync(dir, { recursive: true });
+      // Defense in depth on top of file encryption: keep the store owner-only.
+      restrictPermissions(dir, 0o700);
+    }
+    this.db = new Database(databasePath);
+    // The key PRAGMA must run before any other statement touches the database.
+    if (encryptionKey) this.db.pragma(`key = "x'${encryptionKey}'"`);
     this.db.exec('PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;');
+    if (databasePath !== ':memory:') restrictPermissions(databasePath, 0o600);
     this.migrate();
   }
 
   close(): void {
     this.db.close();
+  }
+
+  getSetting(key: string): string | null {
+    const row = this.db.prepare('SELECT value FROM app_settings WHERE key = ?').get(key) as { value: string } | undefined;
+    return row ? row.value : null;
+  }
+
+  setSetting(key: string, value: string): void {
+    this.db.prepare(`
+      INSERT INTO app_settings (key, value) VALUES (?, ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value
+    `).run(key, value);
+  }
+
+  deleteSetting(key: string): void {
+    this.db.prepare('DELETE FROM app_settings WHERE key = ?').run(key);
   }
 
   upsertServer(input: McpServerInput): McpServerWithEnv {
@@ -105,6 +143,8 @@ export class ConfigRepository {
     this.db.prepare('DELETE FROM mcp_env_vars WHERE server_id = ?').run(id);
     const insertEnv = this.db.prepare('INSERT INTO mcp_env_vars (server_id, key, is_secret, value, secret_ref, vault_key) VALUES (?, ?, ?, ?, ?, ?)');
     for (const env of parsed.env ?? []) {
+      // Secret values live only as sealed refs; non-secret values are stored as
+      // columns (the whole DB file is encrypted at rest).
       insertEnv.run(id, env.key, env.isSecret ? 1 : 0, env.isSecret ? null : env.value ?? null, env.secretRef ?? null, env.vaultKey ?? null);
     }
     return this.getServer(id) ?? (() => { throw new Error(`Failed to load saved MCP server ${id}`); })();
@@ -255,6 +295,10 @@ export class ConfigRepository {
       CREATE TABLE IF NOT EXISTS schema_version (
         version INTEGER PRIMARY KEY,
         applied_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS app_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
       );
       CREATE TABLE IF NOT EXISTS mcp_servers (
         id TEXT PRIMARY KEY,

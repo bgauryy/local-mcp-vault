@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { McpServerInput, McpServerWithEnv, VaultSecretRecord, VaultStatus } from '../shared/types.js';
+import type { McpServerInput, McpServerWithEnv, ServerHealth, VaultSecretRecord, VaultStatus } from '../shared/types.js';
 import {
   buildDashboardMetrics,
   buildEditForm,
@@ -45,6 +45,8 @@ interface AppState {
   secrets: VaultSecretRecord[];
   vault: VaultStatus | null;
   accessKey: string;
+  gatewayAddress: string;
+  serverHealth: Record<string, ServerHealth>;
 
   // UI state
   page: Page;
@@ -82,6 +84,7 @@ interface AppState {
   removeServer: (id: string) => Promise<void>;
   editServer: (server: McpServerWithEnv) => void;
   copyClientConfig: (server: McpServerWithEnv) => Promise<void>;
+  rotateServerKey: (server: McpServerWithEnv) => Promise<void>;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -98,6 +101,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   secrets: [],
   vault: null,
   accessKey: '',
+  gatewayAddress: '',
+  serverHealth: {},
 
   // UI state
   page: 'vault',
@@ -121,7 +126,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   startNewServer: () =>
     set({
       serverForm: DEFAULT_SERVER_FORM,
-      envRows: [createEnvParamDraft(0)],
+      // With an empty vault there is nothing to map, so default to a Plain row.
+      envRows: [createEnvParamDraft(0, get().secrets.length ? 'vault' : 'plain')],
       page: 'add-server',
     }),
 
@@ -143,14 +149,14 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   addEnvRow: () =>
     set((s) => ({
-      envRows: [...s.envRows, createEnvParamDraft(s.envRows.length)],
+      envRows: [...s.envRows, createEnvParamDraft(s.envRows.length, s.secrets.length ? 'vault' : 'plain')],
     })),
 
   removeEnvRow: (id) =>
     set((s) => ({
       envRows:
         s.envRows.length === 1
-          ? [createEnvParamDraft(0)]
+          ? [createEnvParamDraft(0, s.secrets.length ? 'vault' : 'plain')]
           : s.envRows.filter((row) => row.id !== id),
     })),
 
@@ -175,11 +181,21 @@ export const useAppStore = create<AppState>((set, get) => ({
         secrets: secretList,
         vault: vaultStatus,
         accessKey: gateway.accessKey,
+        gatewayAddress: `${gateway.host}:${gateway.port}`,
         toast: {
           kind: vaultStatus.status === 'blocked' ? 'error' : 'success',
           text: vaultStatus.message,
         },
       });
+      // Fetch per-server health in the background; never let one failure block the view.
+      const health = await Promise.all(
+        serverList.map((s) =>
+          api
+            .serverHealth(s.id)
+            .catch((): ServerHealth => ({ serverId: s.id, ok: false, status: 'error', message: 'Health unavailable' })),
+        ),
+      );
+      set({ serverHealth: Object.fromEntries(health.map((h) => [h.serverId, h])) });
     } catch (error) {
       set({ toast: { kind: 'error', text: errorMessage(error) } });
     } finally {
@@ -229,6 +245,20 @@ export const useAppStore = create<AppState>((set, get) => ({
       return;
     }
     const { serverForm, envRows } = get();
+    // Don't silently drop a mapped row the user half-filled: a vault row with a
+    // name but no secret chosen is almost certainly a mistake.
+    const incomplete = envRows.find(
+      (row) => row.key.trim() && row.mode === 'vault' && !row.vaultKey.trim(),
+    );
+    if (incomplete) {
+      set({
+        toast: {
+          kind: 'error',
+          text: `Choose a secret for "${incomplete.key.trim()}", or switch it to a Custom value.`,
+        },
+      });
+      return;
+    }
     try {
       set({ isSaving: true });
       await api.saveServer({
@@ -238,7 +268,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       });
       set({
         serverForm: DEFAULT_SERVER_FORM,
-        envRows: [createEnvParamDraft(0)],
+        envRows: [createEnvParamDraft(0, get().secrets.length ? 'vault' : 'plain')],
         page: 'servers',
         toast: { kind: 'success', text: 'Server saved. Copy install JSON from the server card.' },
       });
@@ -273,7 +303,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   async removeServer(id) {
     const api = getLocalMcpVaultApi();
     if (!api) return;
-    if (!confirm(`Delete MCP server "${id}"? Vault secrets are kept.`)) return;
+    const name = get().servers.find((s) => s.id === id)?.name ?? id;
+    if (!confirm(`Delete MCP server "${name}"? Vault secrets are kept.`)) return;
     try {
       await api.deleteServer(id);
       set({ toast: { kind: 'success', text: 'Server deleted. Vault secrets were kept.' } });
@@ -297,22 +328,28 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   async copyClientConfig(server) {
-    const { accessKey } = get();
-    const config = JSON.stringify(
-      {
-        mcpServers: {
-          [server.id]: {
-            transport: 'streamableHttp',
-            url: server.localUrl,
-            headers: { 'x-octovault-key': accessKey },
-          },
-        },
-      },
-      null,
-      2,
-    );
-    await navigator.clipboard.writeText(config);
-    set({ toast: { kind: 'success', text: `Copied ${server.name} client JSON.` } });
+    const api = getLocalMcpVaultApi();
+    if (!api) return;
+    try {
+      const snippet = await api.clientConfig(server.id);
+      await navigator.clipboard.writeText(JSON.stringify(snippet, null, 2));
+      set({ toast: { kind: 'success', text: `Copied ${server.name} install JSON (server-scoped key).` } });
+    } catch (error) {
+      set({ toast: { kind: 'error', text: errorMessage(error) } });
+    }
+  },
+
+  async rotateServerKey(server) {
+    const api = getLocalMcpVaultApi();
+    if (!api) return;
+    if (!confirm(`Rotate the access key for "${server.name}"? Its current install JSON stops working until re-copied.`)) return;
+    try {
+      const snippet = await api.rotateServerKey(server.id);
+      await navigator.clipboard.writeText(JSON.stringify(snippet, null, 2));
+      set({ toast: { kind: 'success', text: `Rotated key for ${server.name}. New install JSON copied to clipboard.` } });
+    } catch (error) {
+      set({ toast: { kind: 'error', text: errorMessage(error) } });
+    }
   },
 }));
 

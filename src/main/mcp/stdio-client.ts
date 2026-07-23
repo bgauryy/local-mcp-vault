@@ -8,12 +8,23 @@ interface PendingCall {
   timer: NodeJS.Timeout;
 }
 
+/** A server→client message (notification, or a request the server makes of the client). */
+export type ServerMessage = Record<string, unknown>;
+export type ServerMessageListener = (message: ServerMessage) => void;
+
 export class StdioMcpClient {
   private child: ChildProcessWithoutNullStreams | null = null;
   private lines: Interface | null = null;
   private pending = new Map<string | number, PendingCall>();
+  private listeners = new Set<ServerMessageListener>();
 
   constructor(private readonly server: McpServerWithEnv, private readonly env: Record<string, string>, private readonly timeoutMs = 30_000) {}
+
+  /** Subscribe to server→client messages (notifications / server-initiated requests). */
+  onMessage(listener: ServerMessageListener): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
 
   async request(message: unknown): Promise<unknown> {
     const record = assertJsonRpcWithId(message);
@@ -46,6 +57,7 @@ export class StdioMcpClient {
       pending.reject(new Error(`MCP stdio client stopped before response for ${String(id)}`));
     }
     this.pending.clear();
+    this.listeners.clear();
     this.lines?.close();
     this.lines = null;
     this.child?.kill();
@@ -79,11 +91,18 @@ export class StdioMcpClient {
   }
 
   private handleLine(line: string): void {
-    let message: { id?: string | number; error?: unknown };
+    let message: { id?: string | number; method?: unknown; result?: unknown; error?: unknown };
     try {
-      message = JSON.parse(line) as { id?: string | number; error?: unknown };
+      message = JSON.parse(line) as typeof message;
     } catch {
       console.warn(`[mcp:${this.server.id}] ignored non-JSON stdout line`);
+      return;
+    }
+
+    // A message carrying a `method` is server→client (notification or request),
+    // even when it has an id. Everything else with a matching id is a response.
+    if (typeof message.method === 'string') {
+      for (const listener of this.listeners) listener(message as ServerMessage);
       return;
     }
     if (message.id === undefined) return;

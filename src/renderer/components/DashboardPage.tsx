@@ -5,7 +5,7 @@ import { Metric, PanelTitle, Summary, formatNumber } from './ui.js';
 export function DashboardPage() {
   const vault = useAppStore((s) => s.vault);
   const servers = useAppStore((s) => s.servers);
-  const secrets = useAppStore((s) => s.secrets);
+  const gatewayAddress = useAppStore((s) => s.gatewayAddress);
   const metrics = useMetrics();
 
   return (
@@ -59,7 +59,7 @@ export function DashboardPage() {
             label="Vault safety"
             value={vault ? `${vault.status} / ${vault.backend}` : 'checking…'}
           />
-          <Summary label="Secrets stored" value={String(secrets.length)} />
+          <Summary label="Local proxy" value={gatewayAddress || 'starting…'} />
           <Summary label="Servers configured" value={String(servers.length)} />
           <Summary label="Estimated tokens" value={formatNumber(metrics.estimatedTokens)} />
         </div>

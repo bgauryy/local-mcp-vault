@@ -14,12 +14,12 @@ test('converts env parameter rows to vault or plain env inputs', () => {
   ]);
 });
 
-test('envDraftsFromServer preserves vault and plain env rows for editing', () => {
+test('envDraftsFromServer shows custom values but keeps secrets write-only', () => {
   const server = sampleServer({ id: 'server-1', envKey: 'GITHUB_TOKEN' });
   server.env.push({ serverId: 'server-1', key: 'LOG_LEVEL', value: 'debug', isSecret: false, secretRef: null, vaultKey: null });
   assert.deepEqual(envDraftsFromServer(server).map(({ key, mode, vaultKey, value }) => ({ key, mode, vaultKey, value })), [
-    { key: 'GITHUB_TOKEN', mode: 'vault', vaultKey: 'GITHUB_TOKEN', value: '' },
-    { key: 'LOG_LEVEL', mode: 'plain', vaultKey: '', value: 'debug' }
+    { key: 'GITHUB_TOKEN', mode: 'vault', vaultKey: 'GITHUB_TOKEN', value: '' }, // secret: not shown
+    { key: 'LOG_LEVEL', mode: 'plain', vaultKey: '', value: 'debug' }           // custom: shown
   ]);
 });
 

@@ -87,9 +87,12 @@ export function Sidebar() {
       {/* Brand */}
       <div className="brand">
         <div className="brand-logo" aria-hidden="true">
-          <ShieldCheck size={20} strokeWidth={2.5} />
+          <ShieldCheck size={18} strokeWidth={2.25} />
         </div>
-        <span className="brand-name">LMV</span>
+        <span className="brand-text">
+          <span className="brand-name">OctoVault</span>
+          <span className="brand-tagline">Configure MCP servers, safely</span>
+        </span>
       </div>
 
       {/* Sectioned navigation */}
@@ -123,6 +126,16 @@ export function Sidebar() {
         <strong className="vault-chip-status">{vault ? vault.status : 'checking'}</strong>
         <small className="vault-chip-backend">{vault?.backend ?? 'loading…'}</small>
       </div>
+
+      {/* Footer credit */}
+      <a
+        className="sidebar-footer"
+        href="https://octocode.ai"
+        target="_blank"
+        rel="noreferrer"
+      >
+        Built by octocode.ai <span aria-hidden="true">🐙</span> Team
+      </a>
     </aside>
   );
 }

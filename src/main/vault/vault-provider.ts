@@ -1,6 +1,24 @@
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
+import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from 'node:crypto';
 import type { ConfigRepository } from '../storage/config-repository.js';
 import type { VaultStatus } from '../../shared/types.js';
+
+/** The insecure placeholder password shipped for local development. */
+export const INSECURE_DEFAULT_PASSWORD = 'development-only-change-me';
+const FALLBACK_SALT_SETTING = 'vault.fallback.salt';
+
+/**
+ * Map safeStorage's backend to a human name. Electron only reports a meaningful
+ * backend string on Linux; on macOS/Windows the OS mechanism is fixed, so we
+ * label it from the platform instead of the (opaque) API return value.
+ */
+function friendlyBackend(rawBackend: string | undefined): string {
+  switch (process.platform) {
+    case 'darwin': return 'macOS Keychain';
+    case 'win32':  return 'Windows DPAPI';
+    case 'linux':  return rawBackend && rawBackend !== 'unknown' ? rawBackend : 'Linux secret service';
+    default:       return rawBackend ?? 'os-crypt';
+  }
+}
 
 export interface VaultProvider {
   status(): Promise<VaultStatus>;
@@ -23,16 +41,19 @@ export class SafeStorageVaultProvider implements VaultProvider {
   constructor(private readonly repository: ConfigRepository, private readonly safeStorage: SafeStorageLike) {}
 
   async status(): Promise<VaultStatus> {
-    const backend = this.safeStorage.getSelectedStorageBackend?.() ?? 'os-crypt';
+    const rawBackend = this.safeStorage.getSelectedStorageBackend?.();
     const asyncAvailable = this.safeStorage.isAsyncEncryptionAvailable ? await this.safeStorage.isAsyncEncryptionAvailable() : undefined;
     const available = asyncAvailable ?? this.safeStorage.isEncryptionAvailable?.() ?? false;
+    const backend = friendlyBackend(rawBackend);
     if (!available) {
       return { backend, status: 'blocked', canPersistSecrets: false, message: 'OS-backed encryption is unavailable; secret persistence is blocked.' };
     }
-    if (backend === 'basic_text') {
+    // getSelectedStorageBackend() only reports a real backend on Linux; 'basic_text'
+    // means Electron found no keyring, so encryption would be trivially reversible.
+    if (rawBackend === 'basic_text') {
       return { backend, status: 'blocked', canPersistSecrets: false, message: 'Electron selected Linux basic_text storage; secret persistence is blocked to avoid weak encryption.' };
     }
-    return { backend, status: 'safe', canPersistSecrets: true, message: `Secrets are encrypted with ${backend}.` };
+    return { backend, status: 'safe', canPersistSecrets: true, message: `Secrets are encrypted at rest with ${backend}.` };
   }
 
   async seal(ref: string, plaintext: string): Promise<void> {
@@ -71,16 +92,29 @@ export class SafeStorageVaultProvider implements VaultProvider {
 
 export class PasswordVaultProvider implements VaultProvider {
   private readonly key: Buffer;
+  private readonly isDefaultPassword: boolean;
 
   constructor(private readonly repository: ConfigRepository, password: string) {
-    this.key = createHash('sha256').update(password).digest();
+    this.isDefaultPassword = password === INSECURE_DEFAULT_PASSWORD;
+    // Derive the key with scrypt over a persisted per-install random salt so the
+    // fallback resists offline brute force, and so ciphertext survives restarts.
+    let saltHex = this.repository.getSetting(FALLBACK_SALT_SETTING);
+    if (!saltHex) {
+      saltHex = randomBytes(16).toString('hex');
+      this.repository.setSetting(FALLBACK_SALT_SETTING, saltHex);
+    }
+    this.key = scryptSync(password, Buffer.from(saltHex, 'hex'), 32);
   }
 
   async status(): Promise<VaultStatus> {
-    return { backend: 'password-aes-256-gcm', status: 'degraded', canPersistSecrets: true, message: 'Secrets are encrypted with a user-provided password fallback.' };
+    if (this.isDefaultPassword) {
+      return { backend: 'password-aes-256-gcm', status: 'blocked', canPersistSecrets: false, message: 'OS-backed encryption is unavailable and no OCTOVAULT_PASSWORD is set; secret persistence is blocked to avoid encrypting with a known default key.' };
+    }
+    return { backend: 'password-aes-256-gcm', status: 'degraded', canPersistSecrets: true, message: 'OS-backed encryption is unavailable; secrets use a password-derived AES-256-GCM fallback.' };
   }
 
   async seal(ref: string, plaintext: string): Promise<void> {
+    if (this.isDefaultPassword) throw new Error('Refusing to persist secrets: set OCTOVAULT_PASSWORD to enable the encrypted fallback.');
     const iv = randomBytes(12);
     const cipher = createCipheriv('aes-256-gcm', this.key, iv);
     const encrypted = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);

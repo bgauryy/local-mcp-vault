@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 44 44">
+  <!-- Monochrome padlock for the menu-bar / system-tray (template image). -->
+  <g fill="#000">
+    <path d="M14 20v-4a8 8 0 0 1 16 0v4h-3v-4a5 5 0 0 0-10 0v4z"/>
+    <rect x="10" y="20" width="24" height="16" rx="4"/>
+  </g>
+</svg>

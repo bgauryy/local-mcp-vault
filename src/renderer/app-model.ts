@@ -19,8 +19,8 @@ export interface EnvParamDraft {
   value: string;
 }
 
-export function createEnvParamDraft(index = 0): EnvParamDraft {
-  return { id: `env-${Date.now()}-${index}`, key: '', mode: 'vault', vaultKey: '', value: '' };
+export function createEnvParamDraft(index = 0, mode: EnvParamDraft['mode'] = 'vault'): EnvParamDraft {
+  return { id: `env-${Date.now()}-${index}`, key: '', mode, vaultKey: '', value: '' };
 }
 
 export function envDraftsFromServer(server: McpServerWithEnv): EnvParamDraft[] {
@@ -29,6 +29,7 @@ export function envDraftsFromServer(server: McpServerWithEnv): EnvParamDraft[] {
     key: env.key,
     mode: env.vaultKey ? 'vault' : 'plain',
     vaultKey: env.vaultKey ?? '',
+    // Secret values are null (write-only); non-secret custom values are shown.
     value: env.value ?? ''
   }));
 }

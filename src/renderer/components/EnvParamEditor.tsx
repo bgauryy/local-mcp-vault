@@ -19,7 +19,7 @@ export function EnvParamEditor({ secrets }: EnvParamEditorProps) {
       <div className="env-editor-header">
         <div>
           <span className="env-editor-title">Env vars</span>
-          <small>Use Vault for secrets, Plain for safe values like LOG_LEVEL.</small>
+          <small>Every value is encrypted at rest. Reuse a stored Vault key, or enter a custom value for this server.</small>
         </div>
         <button type="button" className="btn btn--ghost btn--sm" onClick={addEnvRow}>
           <Plus size={13} strokeWidth={2.5} aria-hidden="true" />
@@ -43,7 +43,7 @@ export function EnvParamEditor({ secrets }: EnvParamEditorProps) {
 
       {secrets.length === 0 && (
         <p className="env-no-secrets">
-          No vault secrets yet — add them on the Vault page first, or use Plain value for non-sensitive settings.
+          No vault secrets yet — add reusable ones on the Vault page, or enter a custom value here (it's still encrypted).
         </p>
       )}
     </div>
@@ -76,7 +76,7 @@ function EnvRow({ row, secrets, onUpdate, onRemove }: EnvRowProps) {
         onChange={(e) => onUpdate({ mode: e.target.value as EnvParamDraft['mode'] })}
       >
         <option value="vault">Vault key</option>
-        <option value="plain">Plain value</option>
+        <option value="plain">Custom value</option>
       </select>
 
       {row.mode === 'vault' ? (
@@ -92,7 +92,7 @@ function EnvRow({ row, secrets, onUpdate, onRemove }: EnvRowProps) {
         </select>
       ) : (
         <input
-          aria-label="Plain environment value"
+          aria-label="Custom environment value"
           value={row.value}
           onChange={(e) => onUpdate({ value: e.target.value })}
           placeholder="value"

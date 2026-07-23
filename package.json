@@ -1,5 +1,5 @@
 {
-  "name": "octovault-harness",
+  "name": "octovault",
   "version": "0.1.0",
   "description": "OctoVault Electron vault and HTTP gateway for MCP configurations",
   "packageManager": "yarn@1.22.22",
@@ -20,7 +20,8 @@
     "bundle:linux": "yarn build && electron-builder --linux",
     "bundle:win": "yarn build && electron-builder --win",
     "clean": "rm -rf dist dist-renderer release",
-    "lint:secrets": "node --test --import tsx tests/redaction.test.ts"
+    "lint:secrets": "node --test --import tsx tests/redaction.test.ts",
+    "rebuild:native": "electron-builder install-app-deps"
   },
   "keywords": [
     "mcp",
@@ -31,14 +32,11 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "better-sqlite3-multiple-ciphers": "^11.9.1",
     "cors": "^2.8.5",
     "express": "^4.21.2",
-    "lucide-react": "^1.25.0",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
     "uuid": "^11.0.3",
-    "zod": "^3.24.0",
-    "zustand": "^5.0.14"
+    "zod": "^3.24.0"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
@@ -49,9 +47,13 @@
     "@vitejs/plugin-react": "^4.3.4",
     "electron": "^43.2.0",
     "electron-builder": "^26.15.3",
+    "lucide-react": "^1.25.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
-    "vite": "^6.0.3"
+    "vite": "^6.0.3",
+    "zustand": "^5.0.14"
   },
   "build": {
     "appId": "dev.octovault.app",
@@ -64,9 +66,14 @@
       "preload.cjs",
       "package.json",
       "dist/**",
-      "dist-renderer/**"
+      "dist-renderer/**",
+      "assets/icon.png",
+      "assets/tray.png",
+      "assets/trayTemplate.png",
+      "assets/trayTemplate@2x.png"
     ],
     "mac": {
+      "icon": "assets/icon.png",
       "category": "public.app-category.developer-tools",
       "target": [
         "dmg",
@@ -74,6 +81,7 @@
       ]
     },
     "linux": {
+      "icon": "assets/icon.png",
       "category": "Development",
       "target": [
         "AppImage",
@@ -81,6 +89,7 @@
       ]
     },
     "win": {
+      "icon": "assets/icon.png",
       "target": [
         "nsis"
       ]

@@ -1,10 +1,43 @@
 import type { ConfigRepository } from '../storage/config-repository.js';
 import type { VaultProvider } from './vault-provider.js';
-import type { McpEnvVarInput, McpServerInput, McpServerWithEnv, VaultSecretInput, VaultSecretRecord } from '../../shared/types.js';
+import { KeyStore } from './key-store.js';
+import type { ClientConfigSnippet, McpEnvVarInput, McpServerInput, McpServerWithEnv, VaultSecretInput, VaultSecretRecord } from '../../shared/types.js';
 import { parseVaultSecretInput } from '../../shared/validation.js';
 
+/** Header MCP clients send to authenticate against the local gateway. */
+export const ACCESS_KEY_HEADER = 'x-octovault-key';
+
 export class McpConfigService {
-  constructor(private readonly repository: ConfigRepository, private readonly vault: VaultProvider, private readonly gatewayBaseUrl: string) {}
+  constructor(
+    private readonly repository: ConfigRepository,
+    private readonly vault: VaultProvider,
+    private readonly gatewayBaseUrl: string,
+    private readonly keyStore: KeyStore = new KeyStore(repository, vault)
+  ) {}
+
+  /** Per-server access key (synchronous cache read for the gateway hot path). */
+  getServerAccessKey(serverId: string): string {
+    return this.keyStore.server(serverId) ?? '';
+  }
+
+  rotateServerAccessKey(serverId: string): Promise<string> {
+    return this.keyStore.rotateServer(serverId);
+  }
+
+  async buildClientConfig(serverId: string): Promise<ClientConfigSnippet> {
+    const server = this.getServer(serverId);
+    if (!server) throw new Error(`MCP server not found: ${serverId}`);
+    const key = await this.keyStore.ensureServer(server.id);
+    return {
+      mcpServers: {
+        [server.id]: {
+          transport: 'streamableHttp',
+          url: server.localUrl,
+          headers: { [ACCESS_KEY_HEADER]: key }
+        }
+      }
+    };
+  }
 
   async saveServer(input: McpServerInput): Promise<McpServerWithEnv> {
     const id = input.id ?? undefined;
@@ -12,6 +45,9 @@ export class McpConfigService {
     const serverId = id ?? this.repository.upsertServer({ ...draft, env: [] }).id;
     if (!id) this.repository.deleteServer(serverId);
 
+    // Secret values are sealed with the OS keychain and kept out of the renderer.
+    // Non-secret "custom" values are stored as columns (visible in the UI) — the
+    // whole database is encrypted at rest, so they are never plaintext on disk.
     const env: McpEnvVarInput[] = [];
     for (const item of draft.env ?? []) {
       if (item.isSecret) {
@@ -28,7 +64,9 @@ export class McpConfigService {
         env.push(item);
       }
     }
-    return this.repository.upsertServer({ ...draft, id: serverId, env });
+    const saved = this.repository.upsertServer({ ...draft, id: serverId, env });
+    await this.keyStore.ensureServer(saved.id);
+    return saved;
   }
 
   listServers(): McpServerWithEnv[] {
@@ -80,6 +118,7 @@ export class McpConfigService {
 
   async deleteServer(id: string): Promise<void> {
     for (const ref of this.repository.deleteServer(id)) await this.vault.delete(ref);
+    await this.keyStore.forget(id);
   }
 
   async resolveEnv(server: McpServerWithEnv): Promise<Record<string, string>> {

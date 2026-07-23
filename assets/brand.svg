@@ -24,8 +24,6 @@
 
   <rect width="512" height="512" rx="112" fill="#020617"/>
   <rect x="58" y="58" width="396" height="396" rx="96" fill="url(#bg)"/>
-  <circle cx="126" cy="128" r="9" fill="#67e8f9" opacity="0.55"/>
-  <circle cx="389" cy="141" r="7" fill="#a7f3d0" opacity="0.45"/>
   <circle cx="405" cy="367" r="10" fill="#67e8f9" opacity="0.35"/>
 
   <g filter="url(#shadow)">

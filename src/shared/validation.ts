@@ -15,11 +15,10 @@ export const mcpEnvVarInputSchema = z.object({
   vaultKey: envKeySchema.optional(),
   isSecret: z.boolean()
 }).superRefine((value, ctx) => {
-  if (!value.isSecret && value.value === undefined) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Non-secret env vars require a value', path: ['value'] });
-  }
-  if (value.isSecret && !value.vaultKey && !value.secretRef && value.value === undefined) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Secret env vars require a vault key', path: ['vaultKey'] });
+  // Every env var is sealed at rest, so each row needs a source: a fresh value to
+  // seal, an existing sealed ref (unchanged edit), or a reference to a vault key.
+  if (value.value === undefined && value.secretRef === undefined && value.vaultKey === undefined) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Env var requires a value', path: ['value'] });
   }
 });
 

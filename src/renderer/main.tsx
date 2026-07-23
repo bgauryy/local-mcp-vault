@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { Component, useEffect, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { RefreshCw } from 'lucide-react';
 import { useAppStore, type Page } from './store.js';
@@ -68,7 +68,6 @@ function TopBar() {
   return (
     <header className="topbar">
       <div className="topbar-text">
-        <p className="eyebrow">OctoVault</p>
         <h1>{title}</h1>
         <p className="lede">{lede}</p>
       </div>
@@ -101,6 +100,11 @@ function App() {
     void refresh();
   }, [refresh]);
 
+  // Keep the window in sync when servers are toggled from the tray menu.
+  useEffect(() => {
+    return window.localMcpVault?.onServersChanged?.(() => void refresh(false));
+  }, [refresh]);
+
   return (
     <div className="app-shell">
       <Sidebar />
@@ -119,6 +123,43 @@ function App() {
   );
 }
 
+// ─── Error boundary ─────────────────────────────────────────────────────────
+
+class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  state = { error: null as Error | null };
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+
+  componentDidCatch(error: Error) {
+    console.error('[octovault:renderer] uncaught error', error);
+  }
+
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <div className="workspace" role="alert">
+        <div className="panel">
+          <h2>Something went wrong</h2>
+          <p className="panel-hint" style={{ marginTop: 8 }}>
+            The interface hit an unexpected error. Your vault data is safe. Use Refresh, or
+            restart OctoVault.
+          </p>
+          <p className="mono muted" style={{ marginTop: 12, fontSize: 12 }}>{this.state.error.message}</p>
+          <button className="btn btn--primary" style={{ marginTop: 16 }} onClick={() => location.reload()}>
+            Reload
+          </button>
+        </div>
+      </div>
+    );
+  }
+}
+
 // ─── Mount ────────────────────────────────────────────────────────────────────
 
-createRoot(document.getElementById('root')!).render(<App />);
+createRoot(document.getElementById('root')!).render(
+  <ErrorBoundary>
+    <App />
+  </ErrorBoundary>,
+);

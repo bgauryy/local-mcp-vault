@@ -15,7 +15,7 @@ const STEPS = [
   {
     number: '3',
     title: 'Configure env rows',
-    text: 'Use "Vault key" for secret tokens. Use "Plain value" for non-sensitive settings like LOG_LEVEL=debug.',
+    text: 'Use "Vault key" to reuse a stored secret, or "Custom value" for a value only this server needs. Every value is encrypted at rest either way.',
   },
   {
     number: '4',

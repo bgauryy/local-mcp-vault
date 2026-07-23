@@ -1,5 +1,5 @@
 import React from 'react';
-import { ClipboardCopy, Pencil, Trash2 } from 'lucide-react';
+import { ClipboardCopy, KeyRound, Pencil, Trash2 } from 'lucide-react';
 import type { McpServerWithEnv } from '../../shared/types.js';
 import { useAppStore } from '../store.js';
 import { Badge, MiniMetric, ToggleSwitch, formatNumber } from './ui.js';
@@ -14,6 +14,8 @@ export function ServerCard({ server }: ServerCardProps) {
   const editServer = useAppStore((s) => s.editServer);
   const removeServer = useAppStore((s) => s.removeServer);
   const copyClientConfig = useAppStore((s) => s.copyClientConfig);
+  const rotateServerKey = useAppStore((s) => s.rotateServerKey);
+  const health = useAppStore((s) => s.serverHealth[server.id]);
 
   const busy = updatingServerId === server.id;
 
@@ -33,6 +35,11 @@ export function ServerCard({ server }: ServerCardProps) {
             <h3>{server.name}</h3>
             <Badge>{server.transport}</Badge>
             {!server.enabled && <Badge variant="danger">disabled</Badge>}
+            {server.enabled && health && (
+              <Badge variant={health.ok ? 'success' : 'danger'}>
+                {health.ok ? 'ready' : 'error'}
+              </Badge>
+            )}
           </div>
           <p className="mono muted server-url">{server.localUrl}</p>
           {commandLine && <p className="muted server-cmd">{commandLine}</p>}
@@ -51,7 +58,7 @@ export function ServerCard({ server }: ServerCardProps) {
         <span className="server-env-label">Env: </span>
         {envCount === 0
           ? 'no env vars'
-          : server.env.map((e) => `${e.key}→${e.vaultKey ?? 'plain'}`).join(', ')}
+          : server.env.map((e) => `${e.key}→${e.vaultKey ?? 'custom'}`).join(', ')}
       </p>
 
       {/* Usage metrics */}
@@ -79,6 +86,14 @@ export function ServerCard({ server }: ServerCardProps) {
         >
           <Pencil size={14} strokeWidth={2.5} aria-hidden="true" />
           Edit
+        </button>
+        <button
+          className="btn btn--ghost"
+          onClick={() => void rotateServerKey(server)}
+          title="Generate a new access key for this server — its current install JSON stops working until re-copied"
+        >
+          <KeyRound size={14} strokeWidth={2.5} aria-hidden="true" />
+          Rotate key
         </button>
         <button
           className="btn btn--danger"
